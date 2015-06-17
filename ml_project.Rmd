@@ -1,0 +1,204 @@
+---
+title: "Predicting the Correct Bicep Curl"
+author: "Yang Yuzhong"
+date: "6/14/2015"
+output: html_document
+---
+
+## Executive Summary
+Using the dataset from wearable devices, we would like build a machine 
+learning model to predict whether a person performing the Unilateral Dumbbell 
+Biceps Curl is doing it according to specifications or doing it wrongly.
+
+After thorough cleaning of the data set, the data is trained using regression 
+and classification decision tree as well as random forest decision tree to
+determine the better model that predicts with high accuracy (sacrificing time to
+train).
+
+The resulting model that predicts with **99.23%** accuracy was random forest
+decision tree.
+
+## Overview
+The data is obtained from activities conducted using wearable devices from a 
+sample size of 10. Each of the set of activities is classified in to either of
+the following class:
+
+- (Class A), exactly according to the specification.
+- (Class B), throwing the elbows to the front.
+- (Class C), lifting the dumbbell only halfway.
+- (Class D), lowering the dumbbell only halfway.
+- (Class E), throwing the hips to the front.
+
+In this project, we will be training a model to predict and classify new 
+activities into either of the 5 classes.
+
+## Data Exploration
+
+```{r initialization}
+library(caret)
+library(rpart)
+library(doParallel)
+library(randomForest)
+set.seed(8888)
+cl <- makeCluster(detectCores())
+registerDoParallel(cl)
+```
+
+### Loading the Data
+After downloading, the training and testing dataset is opened in Microsoft Excel
+to do a preliminary analysis and understanding of the data we will be working 
+with. Through the preliminary analysis, the data contains missing values like 
+"NA", "DIV/0!", "NULL" and "". We will be setting these to NA when reading in 
+the csv files. 
+
+```{r loading}
+training <- read.csv("pml-training.csv", na.strings=c("NA","#DIV/0!","NULL",""))
+validation <- read.csv("pml-testing.csv", na.strings=c("NA","#DIV/0!","NULL",""))
+```
+
+The dataset consists of _19622_ rows of training data and _20_ rows of 
+validation data.
+
+### Partitioning the Data
+
+Of the 19622 observations in the training set, the data is partitioned into 
+70% training, 30% testing using random sampling. This will be used to as the 
+cross-validation method for our prediction model.
+
+```{r partition}
+inTrain <- createDataPartition(y=training$classe, p=0.7, list=FALSE)
+trainSet <- training[inTrain, ]
+testSet <- training[-inTrain, ]
+```
+
+### Cleaning the Data
+
+The following transformations were performed on the Dataset in order to clean it
+for subsequent model training.
+
+1) Remove columns that with mostly missing values.
+```{r na_columns}
+colNACount <- sapply(training, function(x) {sum(is.na(x))})
+trainSet<-trainSet[,colNACount==0]
+testSet<-testSet[,colNACount==0]
+```
+
+2) Remove columns with near zero variance as it will affect the model training.
+```{r nzv}
+nzvCols <- nearZeroVar(training)
+trainSet<-trainSet[,-nzvCols]
+testSet<-testSet[,-nzvCols]
+```
+
+3) Remove columns that are not belt, forearm, arm, and dumbell relevant to our 
+model training.
+```{r moveRelated}
+trainSet<-trainSet[,-c(1:7)]
+testSet<-testSet[,-c(1:7)]
+```
+
+## Model Building
+
+### Decision Tree: Regression and Classification Tree
+The regression and classification decision tree is trained from the preprocessed
+`trainSet`.
+
+```{r rpart}
+#rpartModel<-train(classe ~ .,method="rpart",data=trainSet)
+#saveRDS(rpartModel, "rpartmodel.RDS")
+rpartModel <- readRDS("rpartmodel.RDS")
+```
+
+Using the resultant model, we perform predicting against `testSet` and determine
+its accuracy from the confusion matrix.
+
+```{r rpartPredict}
+rpartPredict <- predict(rpartModel$finalModel, testSet, type = "class")
+confusionMatrix(rpartPredict, testSet$classe)
+```
+
+From the confusion matrix results, using rpart decision tree resulted in a model
+of an accuracy of only `0.4936` which means the model will only classify an 
+activity correctly **49.36%** of the time.
+
+### Decision Tree: Random Forest
+
+Same thing is performed but using Random Forest decision tree to train the 
+preprocessed `trainSet`.
+```{r randomForest}
+#rfModel<-train(classe ~ .,method="rf",data=trainSet)
+#saveRDS(rfModel, "rfmodel.RDS")
+rfModel <- readRDS("rfmodel.RDS")
+```
+
+Using the resultant model is predicted against `testSet` and determine
+its accuracy from the confusion matrix.
+
+```{r rfPredict}
+rfPredict <- predict(rfModel$finalModel, testSet, type = "class")
+confusionMatrix(rfPredict, testSet$classe)
+```
+
+From the confusion matrix results, using random forest decision tree resulted in
+an impressive model that classifies an activity correctly **99.23%** of the time.
+
+### Out-of-sample Error for Random Forest Model
+
+Taking a deeper look at the confusion matrix, the model will predict new samples
+with the following errors:
+
+1) 1 out of 1674 Class A sample will be misclassified (Error rate of 0.059%)
+2) 15 out of 1139 Class B samples will be misclassified (Error rate of 1.31%)
+3) 11 out of 1026 Class C samples will be misclassified (Error rate of 1.31%)
+4) 7 out of 964 Class D samples will be misclassified (Error rate of 1.07%)
+5) 2 out of 1082 Class E samples will be misclassified (Error rate of 0.195%)
+
+## Conclusion
+
+Random forest was able to predict the test set and validation dataset with an
+astonishing accuracy of **99.23%**. However, it took 45 minutes or more to train
+the model to obtain such accuracy. On the other hand, Regression and 
+Classification decision tree had a low accuracy of **49.36%** which probably tells
+us that it is not suitable for training our dataset or much more preprocessing
+is required of our data so that higher accuracy can be obtained. That being 
+said, the training only took a total of 5 minutes.
+
+In conclusion, for predicting real world data where it is not time critical, 
+Random forest will provide a model with the best accuracy. But it will not be
+feasible for time critical situations.
+
+## Appendix
+
+### Generate output files for submission
+
+```{r outputFunc}
+#finalPredict <- predict(rfModel, validation, type = "raw")
+
+#pml_write_files = function(x){
+#  n = length(x)
+#  for(i in 1:n){
+#    filename = paste0("problem_id_",i,".txt")
+#    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+#  }
+#}
+
+#pml_write_files(finalPredict)
+```
+
+### Citation
+
+The training and testing dataset were downloaded from the following links as 
+part of the Coursera Machine Learning Course:
+
+[Training](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)
+
+[Testing](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv)
+
+Original Source is from:
+*Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable
+Computing: Accelerometers' Data Classification of Body Postures and Movements. 
+Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in 
+Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , 
+pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. 
+ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6.*
+
